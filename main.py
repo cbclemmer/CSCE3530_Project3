@@ -8,8 +8,10 @@ import datetime
 
 import db
 
-# Create the key table if it does not exist
+# Create the tables if they do not exist
 db.create_key_table()
+db.create_user_table()
+db.create_auth_logs_table()
 
 hostName = "localhost"
 serverPort = 8080
@@ -34,6 +36,45 @@ def int_to_base64(value):
     value_bytes = bytes.fromhex(value_hex)
     encoded = base64.urlsafe_b64encode(value_bytes).rstrip(b'=')
     return encoded.decode('utf-8')
+
+def auth_endpoint(server: BaseHTTPRequestHandler, params: dict, ip: str):
+    if not "username" in params or not "password" in params:
+        server.send_response(400)
+        server.end_headers()
+        return
+
+    if not db.authenticate_user(params["username"], params["password"], ip):
+        server.send_response(401)
+        server.end_headers()
+        return
+
+    # Get the first key that will be expired if the 'expired' param is present
+    kid, key_expiration, db_key = db.get_keys('expired' in params)[0]
+
+    headers = {
+        "kid": str(kid)
+    }
+    token_payload = {
+        "user": params["username"],
+        "exp": key_expiration 
+    }
+    db_pem = db.make_pem(db_key)
+    encoded_jwt = jwt.encode(token_payload, db_pem, algorithm="RS256", headers=headers)
+    server.send_response(200)
+    server.end_headers()
+    server.wfile.write(bytes(encoded_jwt, "utf-8"))
+
+def register_endpoint(server: BaseHTTPRequestHandler, params: dict):
+    if not "username" in params or "email" not in params:
+        server.send_response(400)
+        server.end_headers()
+        return
+    password = db.save_user(params["username"], params["email"])
+    server.send_response(200)
+    server.end_headers()
+    server.wfile.write(json.dumps({
+        "password": password
+    }).encode())
 
 
 class MyServer(BaseHTTPRequestHandler):
@@ -61,21 +102,10 @@ class MyServer(BaseHTTPRequestHandler):
         parsed_path = urlparse(self.path)
         params = parse_qs(parsed_path.query)
         if parsed_path.path == "/auth":
-            # Get the first key that will be expired if the 'expired' param is present
-            kid, key_expiration, db_key = db.get_keys('expired' in params)[0]
-
-            headers = {
-                "kid": str(kid)
-            }
-            token_payload = {
-                "user": "username",
-                "exp": key_expiration 
-            }
-            db_pem = db.make_pem(db_key)
-            encoded_jwt = jwt.encode(token_payload, db_pem, algorithm="RS256", headers=headers)
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(bytes(encoded_jwt, "utf-8"))
+            auth_endpoint(self, params, self.client_address[0])
+            return
+        if parsed_path.path == "/register":
+            register_endpoint(self, params)
             return
 
         self.send_response(405)
