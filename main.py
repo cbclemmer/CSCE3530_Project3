@@ -14,15 +14,9 @@ db.create_key_table()
 hostName = "localhost"
 serverPort = 8080
 
-def create_key():
-    return rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=2048,
-    )
-
 # Create a current key and an expired key
-current_key = create_key()
-expired_key = create_key()
+current_key = db.create_key()
+expired_key = db.create_key()
 
 now = datetime.datetime.utcnow()
 later = now + datetime.timedelta(hours=1)

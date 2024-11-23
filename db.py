@@ -1,10 +1,15 @@
+import os
 import sqlite3
 import datetime
 from typing import List, Tuple
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, generate_private_key
 
+
+ENV_PUB_KEY_FILE="rsa_key.pub"
+ENV_PRV_KEY_FILE="rsa_key"
 
 KEY_TABLE_DECLARATION = """
 CREATE TABLE IF NOT EXISTS keys(
@@ -14,11 +19,37 @@ CREATE TABLE IF NOT EXISTS keys(
 )
 """
 
+USER_TABLE_DECLARATION = """
+CREATE TABLE IF NOT EXISTS users(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    email TEXT UNIQUE,
+    date_registered TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login TIMESTAMP      
+)
+"""
+
+
 connection = sqlite3.connect('totally_not_my_privateKeys.db')
+
+def read_key_environment_var():
+    return os.environ.get('NOT_MY_KEY')
+
+
+def create_key():
+    return generate_private_key(
+        public_exponent=65537,
+        key_size=2048
+    )
 
 def create_key_table():
     cursor = connection.cursor()
     cursor.execute(KEY_TABLE_DECLARATION)
+
+def create_user_table():
+    cursor = connection.cursor()
+    cursor.execute(USER_TABLE_DECLARATION)
 
 # Converts a private key object to a PEM encoded string
 def make_pem(key: RSAPrivateKey):
@@ -27,6 +58,16 @@ def make_pem(key: RSAPrivateKey):
         format=serialization.PrivateFormat.TraditionalOpenSSL,
         encryption_algorithm=serialization.NoEncryption()
     )
+
+def encrypt_key(key: RSAPrivateKey):
+    pem = make_pem(key)
+    with open(ENV_PRV_KEY_FILE, 'rb') as f:
+        private_key = serialization.load_pem_private_key(f.read(), password=None)
+    return private_key.public_key(). pt(pem, padding.OAEP(
+        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+        algorithm=hashes.SHA256(),
+        label=None
+    ))
 
 # Save the private key to the database
 def save_private_key(key: RSAPrivateKey, expiration: datetime.datetime):
