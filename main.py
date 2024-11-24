@@ -36,7 +36,6 @@ def int_to_base64(value):
     return encoded.decode('utf-8')
 
 def auth_endpoint(server: BaseHTTPRequestHandler, params: dict, ip: str):
-    start = time.time()
     if not "username" in params or not "password" in params:
         server.send_response(400)
         server.end_headers()
@@ -50,26 +49,11 @@ def auth_endpoint(server: BaseHTTPRequestHandler, params: dict, ip: str):
 
     server.send_response(200)
     server.end_headers()
-    print(f'elapsed: {time.time() - start:.4f}')
+
+    # log auth request after response to improve response time
     cursor = db.connection.cursor()
     cursor.execute("INSERT INTO auth_logs (request_ip, user_id) VALUES (?, ?)", (ip, user_id))
     db.connection.commit()
-    return
-    # Get the first key that will be expired if the 'expired' param is present
-    kid, key_expiration, db_key = db.get_keys('expired' in params)[0]
-
-    headers = {
-        "kid": str(kid)
-    }
-    token_payload = {
-        "user": params["username"],
-        "exp": key_expiration 
-    }
-    db_pem = db.make_pem(db_key)
-    encoded_jwt = jwt.encode(token_payload, db_pem, algorithm="RS256", headers=headers)
-    server.send_response(200)
-    server.end_headers()
-    server.wfile.write(bytes(encoded_jwt, "utf-8"))
 
 def register_endpoint(server: BaseHTTPRequestHandler, params: dict):
     if not "username" in params or "email" not in params:
@@ -89,16 +73,15 @@ def get_post_data(server: BaseHTTPRequestHandler) -> dict:
     return json.loads(server.rfile.read(content_length).decode('utf-8'))
 
 def forward_auth(packet):
-    print("FORWARDED")
     auth_endpoint(packet["server"], packet["params"], packet["ip"])
 
 def drop_auth(packet):
-    print("DROPPED")
     server: BaseHTTPRequestHandler = packet["server"]
     server.send_response(429)
     server.end_headers()
 
-
+# because gradebot waits for each packet to be returned before sending the next one
+# we need to adjust the rate limit to account for response time of the server
 limiter = TokenBucket(11, 1, forward_auth, drop_auth) 
 
 class MyServer(BaseHTTPRequestHandler):

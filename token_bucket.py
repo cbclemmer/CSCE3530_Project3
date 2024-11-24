@@ -21,7 +21,6 @@ class TokenBucket:
         if self.bucket > self.tokens:
             self.bucket = self.tokens
 
-        print(f'Bucket: {self.bucket}')
         if self.bucket < 1:
             self.drop_callback(packet)
         else:
