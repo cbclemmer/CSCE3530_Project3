@@ -114,21 +114,24 @@ def save_user(username: str, email: str) -> str:
     cursor = connection.cursor()
     password = str(uuid4())
     hashed_password = password_hasher.hash(password)
-    cursor.execute("INSERT INTO users (username, password, email) VALUES (?, ?, ?)", (username, hashed_password, email))
+    cursor.execute("INSERT INTO users (username, password_hash, email) VALUES (?, ?, ?)", (username, hashed_password, email))
+    connection.commit()
     return password
 
 def authenticate_user(username: str, password: str, ip: str) -> bool:
     cursor = connection.cursor()
-    timestamp = int(datetime.datetime.utcnow().timestamp())
-    q = cursor.execute("SELECT * FROM users WHERE username=?", username)
+    q = cursor.execute(f"SELECT id, password_hash FROM users WHERE username='{username}'")
     user = q.fetchone()
     if user is None:
         return False
-
-    if not password_hasher.verify(user["password"], password):
+    
+    try:
+        password_hasher.verify(user[1], password)
+    except:
         return False
 
-    cursor.execute("INSERT INTO auth_logs (request_ip, request_timestamp, user_id) VALUES (?, ?, ?)", (ip, timestamp, user["id"]))
+    cursor.execute("INSERT INTO auth_logs (request_ip, user_id) VALUES (?, ?)", (ip, user[0]))
+    connection.commit()
     return True
 
 def encrypt_key(key: RSAPrivateKey) -> bytes:
@@ -141,6 +144,7 @@ def save_private_key(key: RSAPrivateKey, expiration: datetime.datetime):
     encrypted_pem = encrypt_key(key)
     cursor = connection.cursor()
     cursor.execute("INSERT INTO keys (key, exp) VALUES (?, ?)", (encrypted_pem, date_int));
+    connection.commit()
 
 # Get all keys and filter based on whether they are expired or not
 def get_keys(expired: bool) -> List[Tuple[int, datetime.datetime, RSAPrivateKey]]:

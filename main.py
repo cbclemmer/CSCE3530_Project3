@@ -25,6 +25,14 @@ later = now + datetime.timedelta(hours=1)
 db.save_private_key(current_key, later)
 db.save_private_key(expired_key, now)
 
+def int_to_base64(value):
+    value_hex = format(value, 'x')
+    if len(value_hex) % 2 == 1:
+        value_hex = '0' + value_hex
+    value_bytes = bytes.fromhex(value_hex)
+    encoded = base64.urlsafe_b64encode(value_bytes).rstrip(b'=')
+    return encoded.decode('utf-8')
+
 def auth_endpoint(server: BaseHTTPRequestHandler, params: dict, ip: str):
     if not "username" in params or not "password" in params:
         server.send_response(400)
@@ -58,11 +66,16 @@ def register_endpoint(server: BaseHTTPRequestHandler, params: dict):
         server.end_headers()
         return
     password = db.save_user(params["username"], params["email"])
+
     server.send_response(200)
     server.end_headers()
     server.wfile.write(json.dumps({
         "password": password
     }).encode())
+
+def get_post_data(server: BaseHTTPRequestHandler) -> dict:
+    content_length = int(server.headers['Content-Length'])
+    return json.loads(server.rfile.read(content_length).decode('utf-8'))
 
 
 class MyServer(BaseHTTPRequestHandler):
@@ -88,7 +101,7 @@ class MyServer(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed_path = urlparse(self.path)
-        params = parse_qs(parsed_path.query)
+        params = get_post_data(self)
         if parsed_path.path == "/auth":
             auth_endpoint(self, params, self.client_address[0])
             return
