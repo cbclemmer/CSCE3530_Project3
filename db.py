@@ -10,8 +10,7 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, generate_private_key
 
-ENV_PUB_KEY_FILE="rsa_key.pub"
-ENV_PRV_KEY_FILE="rsa_key"
+ENV_PEM_KEY_FILE="rsa_key.pem"
 
 KEY_TABLE_DECLARATION = """
 CREATE TABLE IF NOT EXISTS keys(
@@ -48,7 +47,10 @@ password_hasher = PasswordHasher()
 connection = sqlite3.connect('totally_not_my_privateKeys.db')
 
 def read_key_environment_var():
-    return os.environ.get('NOT_MY_KEY')
+    key = os.environ.get('NOT_MY_KEY')
+    if key is None:
+        raise Exception("Could not find NOT_MY_KEY environment var")
+    return key
 
 def create_key():
     return generate_private_key(
@@ -77,8 +79,7 @@ def make_pem(key: RSAPrivateKey):
     )
 
 def get_private_key() -> RSAPrivateKey:
-    with open(ENV_PUB_KEY_FILE, 'rb') as f:
-        return load_pem_private_key(f.read(), password=None)
+    return load_pem_private_key(read_key_environment_var().encode(), password=None)
 
 def get_padding():
     return padding.OAEP(
@@ -89,7 +90,7 @@ def get_padding():
 
 def save_user(username: str, email: str):
     cursor = connection.cursor()
-    password = uuid4()
+    password = str(uuid4())
     hashed_password = password_hasher.hash(password)
     cursor.execute("INSERT INTO users (username, password, email) VALUES (?, ?, ?)", (username, hashed_password, email))
     return password
@@ -111,6 +112,7 @@ def authenticate_user(username: str, password: str, ip: str):
 def encrypt_key(key: RSAPrivateKey):
     pem = make_pem(key)
     private_key = get_private_key()
+    # TODO: could not encrypt because pem is too long
     return private_key.public_key().encrypt(pem, padding=get_padding())
 
 # Save the private key to the database
