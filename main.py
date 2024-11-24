@@ -8,13 +8,8 @@ import datetime
 
 import db
 
-salt = db.init_salt_file()
-key = db.generate_rsa_key()
-
 # Create the tables if they do not exist
-db.create_key_table()
-db.create_user_table()
-db.create_auth_logs_table()
+db.create_tables()
 
 hostName = "localhost"
 serverPort = 8080
@@ -29,16 +24,6 @@ later = now + datetime.timedelta(hours=1)
 # Save both keys to database
 db.save_private_key(current_key, later)
 db.save_private_key(expired_key, now)
-
-def int_to_base64(value):
-    """Convert an integer to a Base64URL-encoded string"""
-    value_hex = format(value, 'x')
-    # Ensure even length
-    if len(value_hex) % 2 == 1:
-        value_hex = '0' + value_hex
-    value_bytes = bytes.fromhex(value_hex)
-    encoded = base64.urlsafe_b64encode(value_bytes).rstrip(b'=')
-    return encoded.decode('utf-8')
 
 def auth_endpoint(server: BaseHTTPRequestHandler, params: dict, ip: str):
     if not "username" in params or not "password" in params:

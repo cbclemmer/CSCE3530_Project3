@@ -10,13 +10,11 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, generate_private_key
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-RSA_IV_FILE="rsa_iv.bin"
-RSA_SALT_FILE="rsa_salt.bin"
-RSA_KEY_FILE="rsa.txt"
+from aes import ansi_quoted_string_to_bytes
 
-RSA_PWD="VERY_SECURE_PASSWORD"
+AES_IV_FILE="aes_iv.bin"
+AES_ENV_VAR="NOT_MY_KEY"
 
 KEY_TABLE_DECLARATION = """
 CREATE TABLE IF NOT EXISTS keys(
@@ -56,48 +54,34 @@ def init_bytes_file(file_name: str) -> bytes:
         f.write(iv)
     return iv
 
-def init_salt_file():
-    return init_bytes_file(RSA_SALT_FILE)
+def get_iv_data():
+    return init_bytes_file(AES_IV_FILE)
 
-def init_iv_file():
-    return init_bytes_file(RSA_IV_FILE)
-
-def generate_rsa_key():
-    if os.path.exists(RSA_KEY_FILE):
-        with open(RSA_KEY_FILE, 'rb') as f:
-            return f.read()
-    key = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=init_bytes_file(RSA_SALT_FILE),
-        iterations=100000,
-        backend=default_backend()
-    ).derive(RSA_PWD.encode())
-    with open(RSA_KEY_FILE, 'wb') as f:
-        f.write(key)
-    return key
+def get_aes_key() -> bytes: 
+    key = os.environ.get(AES_ENV_VAR)
+    if key is None:
+        raise Exception(f"environment variable {AES_ENV_VAR} not set")
+    return ansi_quoted_string_to_bytes(key)
 
 def get_cipher() -> Cipher:
-    key = generate_rsa_key()
-    iv = init_iv_file()
+    key = get_aes_key()
+    iv = get_iv_data()
     return Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
 
-def rsa_decrypt(ciphertext: bytes) -> bytes:
+def aes_decrypt(ciphertext: bytes) -> bytes:
     decryptor = get_cipher().decryptor()
-    return decryptor.update(ciphertext) + decryptor.finalize()
+    unpadder = sym_padding.PKCS7(128).unpadder()
+    decrypted_text = decryptor.update(ciphertext) + decryptor.finalize()
+    return unpadder.update(decrypted_text) + unpadder.finalize()
 
-def rsa_encrypt(data: bytes) -> bytes:
+def aes_encrypt(data: bytes) -> bytes:
     encryptor = get_cipher().encryptor()
-    return encryptor.update(data) + encryptor.finalize()
+    padder = sym_padding.PKCS7(128).padder()
+    padded_data = padder.update(data) + padder.finalize()
+    return encryptor.update(padded_data) + encryptor.finalize()
 
 password_hasher = PasswordHasher()
 connection = sqlite3.connect('totally_not_my_privateKeys.db')
-
-def read_key_environment_var():
-    key = os.environ.get('NOT_MY_KEY')
-    if key is None:
-        raise Exception("Could not find NOT_MY_KEY environment var")
-    return key
 
 def create_key():
     return generate_private_key(
@@ -105,16 +89,10 @@ def create_key():
         key_size=2048
     )
 
-def create_key_table():
+def create_tables():
     cursor = connection.cursor()
     cursor.execute(KEY_TABLE_DECLARATION)
-
-def create_user_table():
-    cursor = connection.cursor()
     cursor.execute(USER_TABLE_DECLARATION)
-
-def create_auth_logs_table():
-    cursor = connection.cursor()
     cursor.execute(AUTH_LOG_TABLE_DECLARATION)
 
 # Converts a private key object to a PEM encoded string
@@ -125,9 +103,6 @@ def make_pem(key: RSAPrivateKey):
         encryption_algorithm=serialization.NoEncryption()
     )
 
-def get_private_key() -> RSAPrivateKey:
-    return load_pem_private_key(read_key_environment_var().encode(), password=None)
-
 def get_padding():
     return asym_padding.OAEP(
         mgf=asym_padding.MGF1(algorithm=hashes.SHA256()),
@@ -135,16 +110,16 @@ def get_padding():
         label=None
     )
 
-def save_user(username: str, email: str):
+def save_user(username: str, email: str) -> str:
     cursor = connection.cursor()
     password = str(uuid4())
     hashed_password = password_hasher.hash(password)
     cursor.execute("INSERT INTO users (username, password, email) VALUES (?, ?, ?)", (username, hashed_password, email))
     return password
 
-def authenticate_user(username: str, password: str, ip: str):
+def authenticate_user(username: str, password: str, ip: str) -> bool:
     cursor = connection.cursor()
-    timestamp = datetime.datetime.utcnow()
+    timestamp = int(datetime.datetime.utcnow().timestamp())
     q = cursor.execute("SELECT * FROM users WHERE username=?", username)
     user = q.fetchone()
     if user is None:
@@ -156,11 +131,9 @@ def authenticate_user(username: str, password: str, ip: str):
     cursor.execute("INSERT INTO auth_logs (request_ip, request_timestamp, user_id) VALUES (?, ?, ?)", (ip, timestamp, user["id"]))
     return True
 
-def encrypt_key(key: RSAPrivateKey):
+def encrypt_key(key: RSAPrivateKey) -> bytes:
     pem = make_pem(key)
-    private_key = get_private_key()
-    # TODO: could not encrypt because pem is too long
-    return private_key.public_key().encrypt(pem, padding=get_padding())
+    return aes_encrypt(pem)
 
 # Save the private key to the database
 def save_private_key(key: RSAPrivateKey, expiration: datetime.datetime):
@@ -168,10 +141,6 @@ def save_private_key(key: RSAPrivateKey, expiration: datetime.datetime):
     encrypted_pem = encrypt_key(key)
     cursor = connection.cursor()
     cursor.execute("INSERT INTO keys (key, exp) VALUES (?, ?)", (encrypted_pem, date_int));
-
-def decrypt_key(encrypted_pem: bytes):
-    private_key = get_private_key()
-    return private_key.decrypt(encrypted_pem, padding=get_padding())
 
 # Get all keys and filter based on whether they are expired or not
 def get_keys(expired: bool) -> List[Tuple[int, datetime.datetime, RSAPrivateKey]]:
@@ -185,7 +154,7 @@ def get_keys(expired: bool) -> List[Tuple[int, datetime.datetime, RSAPrivateKey]
     for row in rows:
         key_expiration = row[2]
         id = row[0]
-        key_data = decrypt_key(row[1])
+        key_data = aes_decrypt(row[1])
         # Add the key to the return data if it is expired when that's what we're looking for and vise-versa
         if expired == (key_expiration < now):
             ret_data.append((
