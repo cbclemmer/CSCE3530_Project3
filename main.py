@@ -4,9 +4,11 @@ from urllib.parse import urlparse, parse_qs
 import base64
 import json
 import jwt
+import time
 import datetime
 
 import db
+from token_bucket import TokenBucket
 
 # Create the tables if they do not exist
 db.create_tables()
@@ -34,16 +36,25 @@ def int_to_base64(value):
     return encoded.decode('utf-8')
 
 def auth_endpoint(server: BaseHTTPRequestHandler, params: dict, ip: str):
+    start = time.time()
     if not "username" in params or not "password" in params:
         server.send_response(400)
         server.end_headers()
         return
 
-    if not db.authenticate_user(params["username"], params["password"], ip):
+    user_id = db.authenticate_user(params["username"], params["password"])
+    if user_id is None:
         server.send_response(401)
         server.end_headers()
         return
 
+    server.send_response(200)
+    server.end_headers()
+    print(f'elapsed: {time.time() - start:.4f}')
+    cursor = db.connection.cursor()
+    cursor.execute("INSERT INTO auth_logs (request_ip, user_id) VALUES (?, ?)", (ip, user_id))
+    db.connection.commit()
+    return
     # Get the first key that will be expired if the 'expired' param is present
     kid, key_expiration, db_key = db.get_keys('expired' in params)[0]
 
@@ -77,6 +88,18 @@ def get_post_data(server: BaseHTTPRequestHandler) -> dict:
     content_length = int(server.headers['Content-Length'])
     return json.loads(server.rfile.read(content_length).decode('utf-8'))
 
+def forward_auth(packet):
+    print("FORWARDED")
+    auth_endpoint(packet["server"], packet["params"], packet["ip"])
+
+def drop_auth(packet):
+    print("DROPPED")
+    server: BaseHTTPRequestHandler = packet["server"]
+    server.send_response(429)
+    server.end_headers()
+
+
+limiter = TokenBucket(11, 1, forward_auth, drop_auth) 
 
 class MyServer(BaseHTTPRequestHandler):
     def do_PUT(self):
@@ -103,7 +126,13 @@ class MyServer(BaseHTTPRequestHandler):
         parsed_path = urlparse(self.path)
         params = get_post_data(self)
         if parsed_path.path == "/auth":
-            auth_endpoint(self, params, self.client_address[0])
+            #start = time.time()
+            limiter.handle({
+                "server": self,
+                "params": params,
+                "ip": self.client_address[0]
+            })
+            #print(f'elapsed: {time.time() - start:.2f}')
             return
         if parsed_path.path == "/register":
             register_endpoint(self, params)

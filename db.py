@@ -118,21 +118,19 @@ def save_user(username: str, email: str) -> str:
     connection.commit()
     return password
 
-def authenticate_user(username: str, password: str, ip: str) -> bool:
+def authenticate_user(username: str, password: str) -> int | None:
     cursor = connection.cursor()
     q = cursor.execute(f"SELECT id, password_hash FROM users WHERE username='{username}'")
     user = q.fetchone()
     if user is None:
-        return False
+        return None
     
     try:
         password_hasher.verify(user[1], password)
     except:
-        return False
+        return None
 
-    cursor.execute("INSERT INTO auth_logs (request_ip, user_id) VALUES (?, ?)", (ip, user[0]))
-    connection.commit()
-    return True
+    return user[0]
 
 def encrypt_key(key: RSAPrivateKey) -> bytes:
     pem = make_pem(key)
