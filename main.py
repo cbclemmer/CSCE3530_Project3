@@ -8,6 +8,9 @@ import datetime
 
 import db
 
+salt = db.init_salt_file()
+key = db.generate_rsa_key()
+
 # Create the tables if they do not exist
 db.create_key_table()
 db.create_user_table()

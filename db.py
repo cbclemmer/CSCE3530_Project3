@@ -5,12 +5,18 @@ from argon2 import PasswordHasher
 from uuid import uuid4
 from typing import List, Tuple
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives import serialization, hashes, padding as sym_padding
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
-from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, generate_private_key
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-ENV_PEM_KEY_FILE="rsa_key.pem"
+RSA_IV_FILE="rsa_iv.bin"
+RSA_SALT_FILE="rsa_salt.bin"
+RSA_KEY_FILE="rsa.txt"
+
+RSA_PWD="VERY_SECURE_PASSWORD"
 
 KEY_TABLE_DECLARATION = """
 CREATE TABLE IF NOT EXISTS keys(
@@ -41,9 +47,50 @@ CREATE TABLE IF NOT EXISTS auth_logs(
 )
 """
 
+def init_bytes_file(file_name: str) -> bytes: 
+    if os.path.exists(file_name):
+        with open(file_name, 'rb') as f:
+            return f.read()
+    iv = os.urandom(16)
+    with open(file_name, 'wb') as f:
+        f.write(iv)
+    return iv
+
+def init_salt_file():
+    return init_bytes_file(RSA_SALT_FILE)
+
+def init_iv_file():
+    return init_bytes_file(RSA_IV_FILE)
+
+def generate_rsa_key():
+    if os.path.exists(RSA_KEY_FILE):
+        with open(RSA_KEY_FILE, 'rb') as f:
+            return f.read()
+    key = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=init_bytes_file(RSA_SALT_FILE),
+        iterations=100000,
+        backend=default_backend()
+    ).derive(RSA_PWD.encode())
+    with open(RSA_KEY_FILE, 'wb') as f:
+        f.write(key)
+    return key
+
+def get_cipher() -> Cipher:
+    key = generate_rsa_key()
+    iv = init_iv_file()
+    return Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
+
+def rsa_decrypt(ciphertext: bytes) -> bytes:
+    decryptor = get_cipher().decryptor()
+    return decryptor.update(ciphertext) + decryptor.finalize()
+
+def rsa_encrypt(data: bytes) -> bytes:
+    encryptor = get_cipher().encryptor()
+    return encryptor.update(data) + encryptor.finalize()
+
 password_hasher = PasswordHasher()
-
-
 connection = sqlite3.connect('totally_not_my_privateKeys.db')
 
 def read_key_environment_var():
@@ -82,8 +129,8 @@ def get_private_key() -> RSAPrivateKey:
     return load_pem_private_key(read_key_environment_var().encode(), password=None)
 
 def get_padding():
-    return padding.OAEP(
-        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+    return asym_padding.OAEP(
+        mgf=asym_padding.MGF1(algorithm=hashes.SHA256()),
         algorithm=hashes.SHA256(),
         label=None
     )
