@@ -2,12 +2,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse
 import base64
 import json
-import time
-import jwt
 import datetime
 
 import db
 from limiter import Limiter
+from lib import int_to_base64
 
 # Create the tables if they do not exist
 db.create_tables()
@@ -25,14 +24,6 @@ later = now + datetime.timedelta(hours=1)
 # Save both keys to database
 db.save_private_key(current_key, later)
 db.save_private_key(expired_key, now)
-
-def int_to_base64(value):
-    value_hex = format(value, 'x')
-    if len(value_hex) % 2 == 1:
-        value_hex = '0' + value_hex
-    value_bytes = bytes.fromhex(value_hex)
-    encoded = base64.urlsafe_b64encode(value_bytes).rstrip(b'=')
-    return encoded.decode('utf-8')
 
 def auth_endpoint(server: BaseHTTPRequestHandler, params: dict, ip: str):
     if not "username" in params or not "password" in params:
@@ -105,7 +96,12 @@ class MyServer(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed_path = urlparse(self.path)
-        params = get_post_data(self)
+        try:
+            params = get_post_data(self)
+        except:
+            self.send_response(400)
+            self.end_headers()
+            return
         if parsed_path.path == "/auth":
             lim.handle({
                 "server": self,
