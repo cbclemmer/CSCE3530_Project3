@@ -24,6 +24,8 @@ def remove_db():
     DB_FILE = "totally_not_my_privateKeys.db"
     if os.path.exists(DB_FILE):
         os.remove(DB_FILE)
+
+
 proc = multiprocessing.Process(target=start_server, args=())
 proc.start()
 sleep(1) # give time for the server to start
@@ -91,6 +93,9 @@ class ServerTests(unittest.TestCase):
             "password": pwd
         })
         self.assertEqual(200, res.status_code)
+    @classmethod
+    def tearDownClass(cls):
+        proc.terminate()
 
 if __name__ == '__main__':
     unittest.main()
