@@ -5,18 +5,11 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 
+from lib import init_bytes_file
+
 AES_KEY_FILE="aes_key.bin"
 AES_SALT_FILE="aes_salt.bin"
 AES_PWD="VERY_SECURE_PASSWORD"
-
-def init_bytes_file(file_name: str) -> bytes: 
-    if os.path.exists(file_name):
-        with open(file_name, 'rb') as f:
-            return f.read()
-    iv = os.urandom(16)
-    with open(file_name, 'wb') as f:
-        f.write(iv)
-    return iv
 
 def bytes_to_ansi_quoted_string(b: bytes) -> str:
     return ''.join([

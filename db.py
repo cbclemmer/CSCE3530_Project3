@@ -11,6 +11,7 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, generate_private_key
 
+from lib import init_bytes_file
 from aes import ansi_quoted_string_to_bytes
 
 AES_IV_FILE="aes_iv.bin"
@@ -44,15 +45,6 @@ CREATE TABLE IF NOT EXISTS auth_logs(
     FOREIGN KEY(user_id) REFERENCES users(id)
 )
 """
-
-def init_bytes_file(file_name: str) -> bytes: 
-    if os.path.exists(file_name):
-        with open(file_name, 'rb') as f:
-            return f.read()
-    iv = os.urandom(16)
-    with open(file_name, 'wb') as f:
-        f.write(iv)
-    return iv
 
 def get_iv_data():
     return init_bytes_file(AES_IV_FILE)
