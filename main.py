@@ -3,6 +3,7 @@ from urllib.parse import urlparse
 import base64
 import json
 import time
+import jwt
 import datetime
 
 import db
@@ -33,6 +34,23 @@ def int_to_base64(value):
     encoded = base64.urlsafe_b64encode(value_bytes).rstrip(b'=')
     return encoded.decode('utf-8')
 
+def send_jwt(server: BaseHTTPRequestHandler, params: dict):
+    # Get the first key that will be expired if the 'expired' param is present
+    kid, key_expiration, db_key = db.get_keys('expired' in params)[0]
+
+    headers = {
+        "kid": str(kid)
+    }
+    token_payload = {
+        "user": "username",
+        "exp": key_expiration 
+    }
+    db_pem = db.make_pem(db_key)
+    encoded_jwt = jwt.encode(token_payload, db_pem, algorithm="RS256", headers=headers)
+    server.send_response(200)
+    server.end_headers()
+    server.wfile.write(bytes(encoded_jwt, "utf-8"))
+
 def auth_endpoint(server: BaseHTTPRequestHandler, params: dict, ip: str):
     if not "username" in params or not "password" in params:
         server.send_response(400)
@@ -45,13 +63,11 @@ def auth_endpoint(server: BaseHTTPRequestHandler, params: dict, ip: str):
         server.end_headers()
         return
 
-    server.send_response(200)
-    server.end_headers()
-
-    # log auth request after response to improve response time
     cursor = db.connection.cursor()
     cursor.execute("INSERT INTO auth_logs (request_ip, user_id) VALUES (?, ?)", (ip, user_id))
     db.connection.commit()
+
+    send_jwt(server, params)
 
 def register_endpoint(server: BaseHTTPRequestHandler, params: dict):
     if not "username" in params or "email" not in params:

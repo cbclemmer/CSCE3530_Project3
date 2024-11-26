@@ -5,21 +5,11 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 
-from lib import init_bytes_file
+from lib import init_bytes_file, bytes_to_ansi_quoted_string
 
 AES_KEY_FILE="aes_key.bin"
 AES_SALT_FILE="aes_salt.bin"
 AES_PWD="VERY_SECURE_PASSWORD"
-
-def bytes_to_ansi_quoted_string(b: bytes) -> str:
-    return ''.join([
-        f'\\x{byte:02x}'
-        for byte in b
-    ])
-
-def ansi_quoted_string_to_bytes(s: str) -> bytes:
-    matches = re.findall(r'\\x[0-9a-fA-F]{2}', s)
-    return bytes([int(match[2:], 16) for match in matches])
 
 def generate_aes_key():
     if os.path.exists(AES_KEY_FILE):
@@ -35,3 +25,4 @@ def generate_aes_key():
     with open(AES_KEY_FILE, 'w') as f:
         f.write(key_s)
 
+generate_aes_key()

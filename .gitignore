@@ -2,3 +2,4 @@
 env/
 __pycache__/
 totally_not_my_privateKeys.db
+aes_*

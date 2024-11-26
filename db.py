@@ -11,8 +11,7 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, generate_private_key
 
-from lib import init_bytes_file
-from aes import ansi_quoted_string_to_bytes
+from lib import init_bytes_file, ansi_quoted_string_to_bytes
 
 AES_IV_FILE="aes_iv.bin"
 AES_ENV_VAR="NOT_MY_KEY"
