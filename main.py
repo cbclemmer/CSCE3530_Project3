@@ -1,14 +1,12 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from cryptography.hazmat.primitives.asymmetric import rsa
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
 import base64
 import json
-import jwt
 import time
 import datetime
 
 import db
-from token_bucket import TokenBucket
+from limiter import Limiter
 
 # Create the tables if they do not exist
 db.create_tables()
@@ -82,7 +80,7 @@ def drop_auth(packet):
 
 # because gradebot waits for each packet to be returned before sending the next one
 # we need to adjust the rate limit to account for response time of the server
-limiter = TokenBucket(11, 1, forward_auth, drop_auth) 
+lim = Limiter(10, 1, forward_auth, drop_auth) 
 
 class MyServer(BaseHTTPRequestHandler):
     def do_PUT(self):
@@ -106,16 +104,16 @@ class MyServer(BaseHTTPRequestHandler):
         return
 
     def do_POST(self):
+        start = time.time()
         parsed_path = urlparse(self.path)
         params = get_post_data(self)
         if parsed_path.path == "/auth":
-            #start = time.time()
-            limiter.handle({
+            lim.handle({
                 "server": self,
                 "params": params,
                 "ip": self.client_address[0]
             })
-            #print(f'elapsed: {time.time() - start:.2f}')
+            #print(f'elapsed: {time.time() - start:.4f}')
             return
         if parsed_path.path == "/register":
             register_endpoint(self, params)
