@@ -155,6 +155,7 @@ class MyServer(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     webServer = HTTPServer((hostName, serverPort), MyServer)
     try:
+        print(f"Web server started at port {serverPort}")
         webServer.serve_forever()
     except KeyboardInterrupt:
         pass
