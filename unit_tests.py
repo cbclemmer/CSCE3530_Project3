@@ -5,6 +5,7 @@ from time import sleep
 from uuid import UUID, uuid4
 import requests
 import unittest
+from limiter import Limiter
 import main
 import db
 import datetime
@@ -196,6 +197,26 @@ class DBTests(unittest.TestCase):
     def test_save_private_key(self):
         key = db.create_key()
         db.save_private_key(key, datetime.datetime.utcnow())
+
+class LimiterTests(unittest.TestCase):
+    def test_limiter(self):
+        def pass_case(_):
+            return 1
+
+        def drop_case(_):
+            return 0
+        limiter = Limiter(10, 1, pass_case, drop_case)
+        passes = 0
+        for _ in range(20):
+            passes += limiter.handle(None)
+        self.assertEqual(10, passes)
+        sleep(2) # let limiter recover
+        passes = 0
+        for i in range(30):
+            passes += limiter.handle(None)
+            if i == 15:
+                sleep(1)
+        self.assertEqual(20, passes)
 
 if __name__ == '__main__':
     unittest.main()

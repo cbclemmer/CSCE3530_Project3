@@ -14,6 +14,6 @@ class Limiter:
         self.requests.append(current)
         self.requests = list(filter(lambda t: t > window_start, self.requests))
         if len(self.requests) <= self.max_requests:
-            self.forward_cb(packet)
+            return self.forward_cb(packet)
         else:
-            self.drop_cb(packet)
+            return self.drop_cb(packet)
