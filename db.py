@@ -94,13 +94,6 @@ def make_pem(key: RSAPrivateKey):
         encryption_algorithm=serialization.NoEncryption()
     )
 
-def get_padding():
-    return asym_padding.OAEP(
-        mgf=asym_padding.MGF1(algorithm=hashes.SHA256()),
-        algorithm=hashes.SHA256(),
-        label=None
-    )
-
 def save_user(username: str, email: str) -> str:
     cursor = connection.cursor()
     password = str(uuid4())
@@ -134,27 +127,3 @@ def save_private_key(key: RSAPrivateKey, expiration: datetime.datetime):
     cursor = connection.cursor()
     cursor.execute("INSERT INTO keys (key, exp) VALUES (?, ?)", (encrypted_pem, date_int));
     connection.commit()
-
-# Get all keys and filter based on whether they are expired or not
-def get_keys(expired: bool) -> List[Tuple[int, datetime.datetime, RSAPrivateKey]]:
-    cursor = connection.cursor()
-    # Get all keys and do filtering later
-    cursor.execute("SELECT * FROM keys")
-    rows = cursor.fetchall()
-    # Get the current ticks from epoch
-    now = int(datetime.datetime.utcnow().timestamp())
-    ret_data = []
-    for row in rows:
-        key_expiration = row[2]
-        id = row[0]
-        key_data = aes_decrypt(row[1])
-        # Add the key to the return data if it is expired when that's what we're looking for and vise-versa
-        if expired == (key_expiration < now):
-            ret_data.append((
-                id,
-                # Reconvert to datetime
-                datetime.datetime.utcfromtimestamp(key_expiration),
-                # load pem blob into an RSAPrivateKey object for easier use
-                serialization.load_pem_private_key(key_data, backend=default_backend(), password=None)
-            ))
-    return ret_data

@@ -6,6 +6,8 @@ from uuid import UUID, uuid4
 import requests
 import unittest
 import main
+import db
+import datetime
 import multiprocessing
 
 # https://stackoverflow.com/questions/53847404/how-to-check-uuid-validity-in-python
@@ -156,6 +158,44 @@ class MainTests(unittest.TestCase):
         }, "")
         self.assertEqual(200, status_code)
 
+class DBTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        main.init()
+
+    def test_aes_encryption(self):
+        test_string = "This is only a test".encode()
+        ciphertext = db.aes_encrypt(test_string)
+        self.assertEqual(test_string, db.aes_decrypt(ciphertext))
+
+        aes_key = os.environ.get(db.AES_ENV_VAR)
+        self.assertIsNotNone(aes_key)
+        del os.environ[db.AES_ENV_VAR]
+        try:
+            db.get_aes_key()
+            self.fail()
+        except:
+            pass
+
+        os.environ[db.AES_ENV_VAR] = aes_key
+
+    def test_pem(self):
+        key = db.create_key()
+        pem = db.make_pem(key)
+        self.assertIsNotNone(pem)
+        self.assertEqual(type(bytes([])), type(pem))
+
+        encrypted_key = db.encrypt_key(key)
+        self.assertEqual(type(bytes([])), type(encrypted_key))
+        
+
+    def test_authenticate_user(self):
+        user_id = db.authenticate_user("", "")
+        self.assertIsNone(user_id)
+
+    def test_save_private_key(self):
+        key = db.create_key()
+        db.save_private_key(key, datetime.datetime.utcnow())
 
 if __name__ == '__main__':
     unittest.main()
