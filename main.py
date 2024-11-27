@@ -3,66 +3,56 @@ from urllib.parse import urlparse
 import base64
 import json
 import datetime
+from typing import Tuple
 
 import db
 from limiter import Limiter
 from lib import int_to_base64
 
 # Create the tables if they do not exist
-db.create_tables()
+def init():
+    db.create_tables()
 
-hostName = "localhost"
-serverPort = 8080
-
-# Create a current key and an expired key
-current_key = db.create_key()
-expired_key = db.create_key()
-
-now = datetime.datetime.utcnow()
-later = now + datetime.timedelta(hours=1)
-
-# Save both keys to database
-db.save_private_key(current_key, later)
-db.save_private_key(expired_key, now)
-
-def auth_endpoint(server: BaseHTTPRequestHandler, params: dict, ip: str):
+def auth_endpoint(params: dict, ip: str) -> int:
     if not "username" in params or not "password" in params:
-        server.send_response(400)
-        server.end_headers()
-        return
+        return 400
 
     user_id = db.authenticate_user(params["username"], params["password"])
     if user_id is None:
-        server.send_response(401)
-        server.end_headers()
-        return
+        return 401
 
     cursor = db.connection.cursor()
     cursor.execute("INSERT INTO auth_logs (request_ip, user_id) VALUES (?, ?)", (ip, user_id))
     db.connection.commit()
-    
-    server.send_response(200)
-    server.end_headers()
+    return 200
 
-def register_endpoint(server: BaseHTTPRequestHandler, params: dict):
+def register_endpoint(params: dict) -> Tuple[int, dict | None]:
     if not "username" in params or "email" not in params:
-        server.send_response(400)
-        server.end_headers()
-        return
+        return 400, None
     password = db.save_user(params["username"], params["email"])
 
-    server.send_response(200)
-    server.end_headers()
-    server.wfile.write(json.dumps({
+    return 200, {
         "password": password
-    }).encode())
+    }
+
+def auth_wrapper(server: BaseHTTPRequestHandler, params: dict, ip: str):
+    status_code = auth_endpoint(params, ip)
+    server.send_response(status_code)
+    server.end_headers()
+
+def register_wrapper(server: BaseHTTPRequestHandler, params: dict):
+    status_code, body = register_endpoint(params)
+    server.send_response(status_code)
+    server.end_headers()
+    if status_code == 200:
+        server.wfile.write(json.dumps(body).encode())
 
 def get_post_data(server: BaseHTTPRequestHandler) -> dict:
     content_length = int(server.headers['Content-Length'])
     return json.loads(server.rfile.read(content_length).decode('utf-8'))
 
 def forward_auth(packet):
-    auth_endpoint(packet["server"], packet["params"], packet["ip"])
+    auth_wrapper(packet["server"], packet["params"], packet["ip"])
 
 def drop_auth(packet):
     server: BaseHTTPRequestHandler = packet["server"]
@@ -74,26 +64,6 @@ def drop_auth(packet):
 lim = Limiter(10, 1, forward_auth, drop_auth) 
 
 class MyServer(BaseHTTPRequestHandler):
-    def do_PUT(self):
-        self.send_response(405)
-        self.end_headers()
-        return
-
-    def do_PATCH(self):
-        self.send_response(405)
-        self.end_headers()
-        return
-
-    def do_DELETE(self):
-        self.send_response(405)
-        self.end_headers()
-        return
-
-    def do_HEAD(self):
-        self.send_response(405)
-        self.end_headers()
-        return
-
     def do_POST(self):
         parsed_path = urlparse(self.path)
         try:
@@ -110,43 +80,17 @@ class MyServer(BaseHTTPRequestHandler):
             })
             return
         if parsed_path.path == "/register":
-            register_endpoint(self, params)
+            register_wrapper(self, params)
             return
 
         self.send_response(405)
         self.end_headers()
         return
-
-    def do_GET(self):
-        if self.path == "/.well-known/jwks.json":
-            self.send_response(200)
-            self.send_header("Content-type", "application/json")
-            self.end_headers()
-            good_keys = db.get_keys(False)
-            key_list = []
-            # Get all non-expired keys
-            for kid, _, db_key in good_keys:
-                db_numbers = db_key.private_numbers().public_numbers
-                key_list.append({
-                    "alg": "RSA256",
-                    "ktty": "RSA",
-                    "use": "sig",
-                    "kid": kid,
-                    "n": int_to_base64(db_numbers.n),
-                    "e": int_to_base64(db_numbers.e)
-                })
-            keys = {
-                "keys": key_list
-            }
-            self.wfile.write(bytes(json.dumps(keys), "utf-8"))
-            return
-
-        self.send_response(405)
-        self.end_headers()
-        return
-
 
 if __name__ == "__main__":
+    init()
+    hostName = "localhost"
+    serverPort = 8080
     webServer = HTTPServer((hostName, serverPort), MyServer)
     try:
         print(f"Web server started at port {serverPort}")
