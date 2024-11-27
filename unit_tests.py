@@ -8,6 +8,7 @@ import unittest
 from limiter import Limiter
 import main
 import db
+import lib
 import datetime
 import multiprocessing
 
@@ -217,6 +218,25 @@ class LimiterTests(unittest.TestCase):
             if i == 15:
                 sleep(1)
         self.assertEqual(20, passes)
+
+class LibTests(unittest.TestCase):
+    def test_lib(self):
+        test_file = "iv_test_file.bin"
+        if os.path.exists(test_file):
+            os.remove(test_file)
+        iv = lib.init_bytes_file(test_file)
+        self.assertEqual(type(bytes([])), type(iv))
+        self.assertTrue(os.path.exists(test_file))
+        os.remove(test_file)
+
+    def test_bytes_to_ansi(self):
+        test_string = "string to test".encode()
+        encoded_string = lib.bytes_to_ansi_quoted_string(test_string)
+        self.assertEqual(type(''), type(encoded_string))
+        self.assertEqual('\\x73\\x74\\x72\\x69\\x6e\\x67\\x20\\x74\\x6f\\x20\\x74\\x65\\x73\\x74', encoded_string)
+        decoded_string = lib.ansi_quoted_string_to_bytes(encoded_string)
+        self.assertEqual(test_string, decoded_string)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,13 +1,10 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse
-import base64
 import json
-import datetime
 from typing import Tuple
 
 import db
 from limiter import Limiter
-from lib import int_to_base64
 
 # Create the tables if they do not exist
 def init():
